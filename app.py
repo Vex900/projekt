@@ -1,9 +1,8 @@
-from flask import Flask, render_template
-from flask_socketio import SocketIO, emit
-import random
+from flask import Flask, render_template, request
+from flask_socketio import SocketIO
+import uuid
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "secret"
 
 socketio = SocketIO(
     app,
@@ -14,48 +13,104 @@ socketio = SocketIO(
 players = {}
 bullets = []
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
 @socketio.on("connect")
-def connect():
-    player_id = str(random.randint(1000, 999999))
+def player_connect():
+
+    player_id = request.sid
 
     players[player_id] = {
-        "x": random.randint(50, 750),
-        "y": random.randint(50, 550)
+        "id": player_id,
+        "x": 400,
+        "y": 300,
+        "color": "#" + uuid.uuid4().hex[:6]
     }
 
-    emit("init", {
-        "id": player_id,
-        "players": players
-    })
+    # pošli hráčovi jeho ID
+    socketio.emit(
+        "your_id",
+        player_id,
+        to=player_id
+    )
 
-    socketio.emit("players_update", players)
+    # pošli všetkých hráčov
+    socketio.emit(
+        "players",
+        players
+    )
+
 
 @socketio.on("move")
 def move(data):
-    pid = data["id"]
 
-    if pid not in players:
-        return
+    player_id = request.sid
 
-    players[pid]["x"] = data["x"]
-    players[pid]["y"] = data["y"]
+    if player_id in players:
 
-    socketio.emit("players_update", players)
+        players[player_id]["x"] = data["x"]
+        players[player_id]["y"] = data["y"]
+
+        socketio.emit(
+            "players",
+            players
+        )
+
 
 @socketio.on("shoot")
 def shoot(data):
-    bullets.append({
+
+    player_id = request.sid
+
+    # strela patrí iba hráčovi ktorý klikol
+    bullet = {
+
+        "id": str(uuid.uuid4()),
+
+        "owner": player_id,
+
         "x": data["x"],
         "y": data["y"],
+
         "dx": data["dx"],
         "dy": data["dy"]
-    })
 
-    socketio.emit("bullets_update", bullets)
+    }
+
+
+    bullets.append(bullet)
+
+
+    socketio.emit(
+        "bullet",
+        bullet
+    )
+
+
+@socketio.on("disconnect")
+def disconnect():
+
+    player_id = request.sid
+
+    if player_id in players:
+        del players[player_id]
+
+
+    socketio.emit(
+        "players",
+        players
+    )
+
+
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000)
+
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000
+    )
